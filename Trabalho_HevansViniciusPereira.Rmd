@@ -1,0 +1,501 @@
+---
+title: "Trabalho de Estatística Computacional II"
+output: pdf_document
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Aluno: Hevans Vinicius Pereira
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+library(knitr)
+#library(ggplot2)
+#library(stats4)
+```
+
+
+## Introdução
+
+
+Neste trabalho irei fazer simulações de Monte Carlo para verificar se há viés e avaliar a qualidade dos estimadores da distribuição Reflected Weibull apresentada no artigo intitulado "Modifications of the Weibull distribution: A review" dos autores Almalki, Saad J. e Nadarajah, Saralees, que foi publicado no "Reliability Engineering and System Safety" em 05 de dezembro de 2013 (http://dx.doi.org/10.1016/j.ress.2013.11.010).
+
+
+Para muitas aplicações práticas é importante modelar o tempo de vida para um conjunto de dados, e muitas distribuições (Weibull, Pareto, Gompertz, etc) são usadas para este fim. Entretanto, para algumas aplicações as distribuições clássicas não são tão adequadas e, por isso, surge a necessidade de se generalizar tais distribuições a fim de encontrar ajustes melhores. Muitas generalizações foram propostas ao longo dos anos e o artigo em questão apresenta uma nova forma.
+
+
+
+## A distribuição Reflected Weibull (RefW)
+
+
+Considerando uma variável aleatória $X$ que segue uma distribuição de Weibull com parâmetros $a$ e $b$ temos que $Y=-X$ tem distribuição reflected Weibull.
+
+
+Com isto, a função de densidade de probabilidade de $Y$ é $f(y) = \alpha \theta (-y)^{\theta-1}e^{-\alpha(-y)^\theta}$ para $-\infty < y < 0$ e $\alpha, \theta > 0$. A função de probabilidade acumulada é dada por $F(y)=e^{-\alpha(-y)^\theta}$ para $-\infty < y < 0$ e $\alpha, \theta > 0$.
+
+
+Vamos implementar a função densidade de probabilidade conforme expressão acima.
+
+
+```{r}
+drefw <- function(x, alpha, theta){
+    # y deve ser negativo
+    if (any(alpha <= 0)) 
+        return(NA)
+    if (any(theta <= 0)) 
+        return(NA)
+    if (any(x >= 0)) 
+        stop(paste("x deve ser negativo", "\n", ""))
+    if (!length(x)) {
+        return(numeric(0))
+    }
+         
+    pdf <- alpha * theta * ((-x) ** (theta-1)) * exp(-alpha * ((-x) ** theta))
+    
+    return(pdf)
+}
+```
+
+
+Vamos plotar a função densidade de probabilidade para alguns valores de $\alpha$ e $\theta$.
+
+
+```{r}
+x <- seq(-5, -0.001, length.out = 500)
+
+plot(x, drefw(x, 1, 1), type='l', col='red', lwd=2,
+     xlim=c(-5,0), ylim=c(0,1), ylab='f(y)', main='Gráfico de Densidade para a refw')
+
+lines(x, drefw(x, 0.5, 2), type='l', col='blue', lwd=2)
+lines(x, drefw(x, 1.5, 0.3), type='l', col='green', lwd=2)
+
+legend(-4, 1, legend=c("drefw(y, alpha=1, theta=1)",
+                       "drefw(y, alpha=0.5, theta=2)",
+                       "drefw(y, alpha=1.5, theta=0.3)"),
+       col=c("red", "green", "blue"), lty=1, lwd=2)
+```
+
+
+Obtemos assim a figura 12 (pg 39) do artigo citado.
+
+
+Vamos implementar a função probabilidade acumulada conforme expressão já apresentada.
+
+
+```{r}
+prefw <- function(q, alpha, theta){
+    if (any(alpha <= 0)) 
+        stop(paste("alpha deve ser positivo", "\n", ""))
+    if (any(theta <= 0)) 
+        stop(paste("theta deve ser positivo", "\n", ""))
+    if (any(q >= 0)) 
+        stop(paste("q deve ser negativo", "\n", ""))
+  
+    cdf <- exp(-alpha * ((-q) ** theta))
+  
+    return(cdf)
+}
+```
+
+
+Podemos plotar os gráficos das distribuições de probabilidade acumuladas para alguns valores de $\alpha$ e $\theta$.
+
+
+```{r, fig.dim=c(8,4)}
+x <- seq(-5, -0.001, length.out = 500)
+
+plot(x, prefw(x, 1, 1), type='l', col='red', lwd=2,
+     main='Gráfico de Prob. Acumulada para a refw',
+     xlim=c(-5,0), ylim=c(0,1), ylab='f(y)')
+
+lines(x, prefw(x, 0.5, 2), type='l', col='blue', lwd=2)
+lines(x, prefw(x, 1.5, 0.3), type='l', col='green', lwd=2)
+
+legend(-4, 1, legend=c("prefw(y, alpha=1, theta=1)",
+                       "prefw(y, alpha=0.5, theta=2)",
+                       "prefw(y, alpha=1.5, theta=0.3)"),
+       col=c("red", "green", "blue"), lty=1, lwd=2)
+```
+
+
+Agora, vamos implementar a função quantil.
+
+
+Pela definição de quantil para uma variável contínua temos $\int_{-\infty}^{q_p} f(y)dy = p$, em que $q_p$ é o valor do quantil e depende do $p$ escolhido. No nosso caso, temos $\int_{-\infty}^{q_p} \alpha \theta (-y)^{\theta-1}e^{-\alpha(-y)^\theta} dy = p$. Fazendo a mudança de variável $x=-\alpha(-y)^\theta$ temos $dx = \alpha \theta (-y)^{\theta-1} dy$.
+
+Assim, $\int_{\infty}^{-\alpha(-q_p)^\theta} e^x dx = p$, ou seja, $e^{-\alpha(-q_p)^\theta}=p$. Aplicando o logaritmo natural de ambos os lados temos $-\alpha(-q_p)^\theta = ln(p)$ e isolando $q$, temos $q = - \left( -\frac{1}{\alpha} ln(p) \right)^{\frac{1}{\theta}}$.
+
+
+Agora, podemos implementar a função quantil.
+
+
+```{r}
+qrefw <- function(p, alpha, theta, lower.tail=TRUE){
+    if (any(theta <= 0)) 
+        stop(paste("theta deve ser positivo", "\n", ""))
+    if (any(alpha <= 0)) 
+        stop(paste("alpha deve ser positivo", "\n", ""))
+    if (any(p < 0) | any(p > 1)) 
+        stop(paste("p deve estar entre 0 e 1", "\n", ""))
+
+  
+    if (lower.tail){p <- p}
+    else{p <- 1 - p}
+    
+    q <- -( ( (-1 / alpha) * log(p) ) ^ (1/theta) )
+    return(q)
+}
+```
+
+
+Podemos plotar os gráficos das funções quantílicas para alguns valores de $\alpha$ e $\theta$.
+
+
+```{r, fig.dim=c(8,4)}
+p <- seq(0.05, 0.95, length = 30)
+
+plot(p, qrefw(p, 1, 1), type='l', col='red', lwd=2,
+     xlim=c(0, 1), ylim=c(-5, 0), ylab='f(y)', main='Gráfico de Quantil para a refw')
+
+lines(p, qrefw(p, 0.5, 1), type='l', col='blue', lwd=2)
+lines(p, qrefw(p, 1.5, 0.5), type='l', col='green', lwd=2)
+
+legend(0.5, -3, legend=c("qrefw(alpha=1, theta=1)",
+                       "qrefw(alpha=0.5, theta=1)",
+                       "qrefw(alpha=1.5, theta=0.5)"),
+       col=c("red", "green", "blue"), lty=1, lwd=2)
+```
+
+
+Por fim, vamos implementar uma função geradora de valores aleatórios conforme a distribuição que estamos considerando.
+
+
+```{r}
+rrefw <- function(n, alpha, theta){
+  if (any(alpha <= 0)) 
+    stop(paste("alpha deve ser positivo", "\n", ""))
+  if (any(theta <= 0)) 
+    stop(paste("theta deve ser positivo", "\n", ""))
+
+  qrefw(runif(n), alpha, theta)
+}
+```
+
+
+Podemos plotar alguns gráficos para verificar se a função `rrefw` está de acordo com o esperado.
+
+
+```{r, fig.dim=c(8,4)}
+x <- seq(-5, -0.1, length.out = 1000)
+
+vec <- rrefw(1000, 1, 1)
+hist(vec, prob=TRUE, xlab='x', col='white', main='Gráfico de Ajuste para a refw')
+lines(x, drefw(x, 1, 1), lwd = 2, col = "red")
+```
+
+
+```{r, fig.dim=c(8,4)}
+vec2 <- rrefw(1000, 0.5, 1)
+hist(vec2, prob=TRUE, xlab='x', col='white', main='Gráfico de Ajuste para a refw')
+lines(x, drefw(x, 0.5, 1), lwd=2, col='red')
+```
+
+
+```{r, fig.dim=c(8,4)}
+vec3 <- rrefw(1000, 1.5, 0.5)
+hist(vec3, prob=TRUE, xlab='x', col='white', main='Gráfico de Ajuste para a refw')
+lines(x, drefw(x, 1.5, 0.5), lwd=2, col='red')
+```
+
+
+Agora que temos as funções relacionadas à distribuição podemos fazer a simulação de Monte Carlo.
+
+
+## Simulação Monte Carlo
+
+
+Para fazer essa simulação usaremos o pacote `fitdistrplus`. Vamos criar o estimador de máxima verossimilhança da forma como feito em aula.
+
+
+```{r, warning=FALSE, message=FALSE}
+library(fitdistrplus)
+
+# Estimador de Máxima Verossimilhança
+emv.reflected.weibull <- function(x, par)
+{
+    fit <- try(fitdist(x,
+                       distr='refw',
+                       start = list(alpha=par[[1]], theta=par[[2]]))$estimate,
+               silent = TRUE)
+    if( !is.numeric(fit) ){fit <- NA}
+    return(fit)
+}
+```
+
+
+Agora vamos definir uma semente e criar os objetos que receberam os valores gerados na simulação.
+
+```{r}
+set.seed(666) # Definir a semente para resultados reprodutíveis
+
+# Definir os valores paramétricos para o parâmetro alpha
+alphas <- c(0.5, 1, 1.5, 2) 
+
+# Definir os valores paramétricos para o parâmetro theta
+thetas <- c(0.5, 1, 1.5) 
+
+# Cenários
+param  <- expand.grid(alphas, thetas) 
+
+
+B    <- 1000 # Número de simulações
+nmax <- 100 # Tamanho de amostra máximo
+enes <- seq(10, nmax, 10) # Tamanhos de amostras
+
+
+# Viés do estimador do parâmetro alpha
+vies.alpha <- matrix(nrow = length(enes), ncol = nrow(param)) 
+
+# Viés do estimador do parâmetro theta
+vies.theta <- vies.alpha 
+
+# Erro-quadrático-médio do estimador do parâmetro alpha
+eqm.alpha <- matrix(nrow = length(enes), ncol = nrow(param))
+
+# Erro-quadrático-médio do estimador do parâmetro theta
+eqm.theta <- eqm.alpha 
+```
+
+
+Agora que definimos todos os objetos que receberão os dados da simulação podemos realizar a simulação em si. Conforme feito em aula, para cada cenário vamos gerar valores baseado nos valores de $\alpha$ e $\theta$ para cada tamanho de amostra, para isso usaremos dois laços de repetição e a família apply.
+
+
+```{r, warning=FALSE}
+set.seed(666)
+colunas <- c()
+    
+for(i in 1:nrow(param))
+{
+    k <- 1
+    X <- rrefw(nmax * B, alpha = param[i,1], theta = param[i,2])
+    X <- matrix(X, ncol = B, nrow = nmax)
+    
+    
+    for(n in enes)
+    {
+        x   <- data.frame(X[1:n,])
+        fit <- sapply(x, emv.reflected.weibull, par = param[i,])
+        
+        vies.alpha[k,i] <- mean(fit[][1,] - param[i,1], na.rm = TRUE)
+        vies.theta[k,i] <- mean(fit[][2,] - param[i,2], na.rm = TRUE)
+        
+        eqm.alpha[k,i] <- mean((fit[][1,] - param[i,1])^2, na.rm = TRUE)
+        eqm.theta[k,i] <- mean((fit[][2,] - param[i,2])^2, na.rm = TRUE)
+        
+        k <- k + 1
+        
+    }
+    colunas <- append(colunas, paste('a=',param[i,1],' t=',param[i,2], sep=""))
+}
+```
+
+
+Podemos obter a matriz com o resultado dos valores de viés para cada valor de $\alpha$ e $\theta$ em cada simulação. A seguir podemos ver os números nessa matriz.
+
+
+```{r}
+rownames(vies.alpha) <- paste("amostra=", enes, sep="")
+colnames(vies.alpha) <- colunas
+vies.alpha
+```
+
+
+Vamos plotar os gráficos do viés de cada simulação para as variáveis $\alpha$ e $\theta$, bem como os gráficos dos erros quadráticos médios para cada parâmetro.
+
+
+Começando pelo gráfico do viés para o parâmetro $\alpha$.
+
+
+```{r, fig.dim=c(7,5)}
+matplot(vies.alpha, type='b', col=c(1:12), pch=c(1:12), xaxt = "n",
+        main='Viés do Parâmetro alpha', xlab='tamanho amostral')
+axis(1, at=c(1:length(enes)), labels=enes)
+legend("topright",
+       inset=0.01,
+       legend=colunas,
+       col=c(1:12),
+       pch=1:12,
+       bg= ("white"),
+       horiz=F
+)
+```
+
+
+Agora vamos obter a matriz com o resultado dos valores de viés de $\theta$ para cada valor de $\alpha$ e $\theta$ em cada simulação. A seguir podemos ver os números nessa matriz.
+
+
+```{r}
+rownames(vies.theta) <- paste("amostra=", enes, sep="")
+colnames(vies.theta) <- colunas
+vies.theta
+```
+
+
+Agora vamos plotar o viés para o parâmetro $\theta$.
+
+
+```{r, fig.dim=c(7,5)}
+matplot(vies.theta, type = 'b', col=c(1:12), pch=c(1:12), xaxt = "n",
+        main='Viés do Parâmetro theta', xlab='tamanho amostral')
+axis(1, at=c(1:length(enes)), labels=enes)
+legend("topright",
+       inset=0.01,
+       legend=colunas,
+       col=c(1:12),
+       pch=1:12,
+       bg= ("white"),
+       horiz=F
+)
+```
+
+
+Podemos observar, do estudo de simulação, que o viés para os parâmetros $\alpha$ e $\theta$ é relativamente alto para tamanho amostral menor que 30, o que nos impõe muita cautela quando pretendemos afirmar, em dados reais, que uma distribuição segue o modelo Reflected Weibull se houver poucas observações. Também podemos ver que o viés diminui, tendendo para zero, com o aumento do tamanho amostral e acaba estabilizando próximo de zero.
+
+
+Podemos obter a matriz com o resultado dos valores de erro quadrático médio para o parâmetro $\alpha$ para cada valor de $\alpha$ e $\theta$ em cada simulação. A seguir podemos ver os números nessa matriz.
+
+
+```{r}
+rownames(eqm.alpha) <- paste("amostra=", enes, sep="")
+colnames(eqm.alpha) <- colunas
+eqm.alpha
+```
+
+
+Podemos também plotar o erro quadrático médio para o parâmetro $\alpha$.
+
+```{r, fig.dim=c(7,5)}
+matplot(eqm.alpha, type = 'b', col=c(1:12), pch=c(1:12), xaxt = "n",
+        main='EQM do Parâmetro alpha', xlab='tamanho amostral')
+axis(1, at=c(1:length(enes)), labels=enes)
+legend("topright",
+       inset=0.01,
+       legend=colunas,
+       col=c(1:12),
+       pch=1:12,
+       bg= ("white"),
+       horiz=F
+)
+```
+
+
+Podemos obter a matriz com o resultado dos valores de erro quadrático médio para o parâmetro $\theta$ para cada valor de $\alpha$ e $\theta$ em cada simulação. A seguir podemos ver os números nessa matriz.
+
+
+```{r}
+rownames(eqm.theta) <- paste("amostra=", enes, sep="")
+colnames(eqm.theta) <- colunas
+eqm.theta
+```
+
+
+Agora vamos plotar o erro quadrático médio para o parâmetro $\theta$.
+
+```{r, fig.dim=c(7,5)}
+matplot(eqm.theta, type = 'b', col=c(1:12), pch=c(1:12), xaxt = "n",
+        main='EQM do Parâmetro theta', xlab='tamanho amostral')
+axis(1, at=c(1:length(enes)), labels=enes)
+legend("topright",
+       inset=0.01,
+       legend=colunas,
+       col=c(1:12),
+       pch=1:12,
+       bg= ("white"),
+       horiz=F
+)
+```
+
+
+
+Podemos observar, do estudo de simulação, que o erro quadrático médio para os parâmetros $\alpha$ e $\theta$ é relativamente alto para tamanho amostral menor que 20, o que nos impõe muita cautela quando pretendemos afirmar, em dados reais, que uma distribuição segue o modelo Reflected Weibull se houver poucas observações. Também podemos ver o viés diminui com o aumento do tamanho amostral e acaba estabilizando, próximo de zero.
+
+
+Embora tenham sido realizados apenas 1000 simulações, pode-se notar que os vieses e EQM baixos indicam um bom ajuste, não necessitando o aumento do número de simulações. Ainda assim, se aumentassemos o números de simulações obteríamos valores mais precisos de viés e EQM.
+
+
+O comportamento do viés e do EQM nos mostral que temos um bom estimador da distribuição.
+
+
+
+## Aplicação
+
+
+Vamos usar essa distribuição para ver o ajuste ao conjunto de dados `Leukocyte_Profiles.xlsx` disponibilizado.
+
+
+```{r, warning=FALSE}
+library(readxl)
+dados <- as.data.frame(read_excel("Leukocyte_Profiles.xlsx"))
+```
+
+
+Para estimar o melhores valores de $\alpha$ e $\theta$ que ajustam os dados da coluna `H/L ratio` vamos usar a função de máxima verossimilhança criada anteriormente. Neste caso todos os valores são positivos e a distribuição Reflected Weibull não tem como cobrir estes dados, por isso vamos multiplicá-los por (-1) para verificar o ajuste.
+
+
+```{r, warning=FALSE}
+x <- dados$`H/L ratio`
+par.hat <- emv.reflected.weibull(-x, list(1,2))
+par.hat
+```
+
+
+Obtemos assim uma $\alpha$ de aproximadamente 0.94 e um $\theta$ de aproximadamente 1.02.
+
+
+Também podemos plotar a estimativa das função de densidade de probabilidade para os dados. 
+
+
+```{r, fig.dim=c(8,4)}
+hist(-dados$`H/L ratio`, prob=TRUE, ylab='', xlab='x', lwd=2, col='white',
+     main='Densidade de Probabilidade Estimada')
+lines(sort(-dados$`H/L ratio`),
+      drefw(sort(-dados$`H/L ratio`), alpha=par.hat[1], theta=par.hat[2]),
+      type='l', col='green', lwd=2)
+```
+
+
+Bem como a função de probabilidade acumulada para os dados.
+
+
+```{r, fig.dim=c(8,4)}
+soma <- cumsum(dados$`H/L ratio`) / sum(dados$`H/L ratio`)
+plot(sort(-dados$`H/L ratio`), soma, type='l', lwd=2,
+     main='Probabilidade Acumulada Estimada', ylab='', xlab='x')
+lines(sort(-dados$`H/L ratio`), prefw(sort(-dados$`H/L ratio`), par.hat[1], par.hat[2]),
+      type='l', col='green', lwd=2)
+lines(sort(-dados$`H/L ratio`), pweibull(sort(dados$`H/L ratio`), par.hat[1], par.hat[2]),
+      type='l', col='red', lwd=2)
+legend("topleft", c("dados", "reflected weibull", "weibull"),
+       col=c("black", "green", "red"), lwd=2)
+```
+
+
+
+## Conclusão
+
+
+Embora muitas funções de probabilidade conhecidas cumpram um bom papel para modelar adequadamente diversos conjuntos de dados, pode ser preciso obter uma nova distribuição a fim de obter um melhor ajuste.
+
+
+
+## Referências
+
+
+* Almalki, Saad J. & Nadarajah, Saralees: [Modifications of the Weibull distribution: A review.](http://dx.doi.org/10.1016/j.ress.2013.11.010) Reliability Engineering and System Safety. (2013)
+
+* Aulas de Estatística Computacional II do prof. Ricardo Puziol de Oliveira
+
